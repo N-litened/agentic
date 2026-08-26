@@ -1,0 +1,16 @@
+.cpcache/
+.nrepl-port
+.repl-port
+*.class
+*.jar
+/target
+/classes
+.clj-kondo/.cache
+.lsp/.cache
+.idea
+*.iml
+.calva
+.eastwood
+.portal
+.clerk
+.DS_Store

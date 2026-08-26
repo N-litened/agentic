@@ -1,0 +1,10 @@
+{:paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.1"}}
+ :aliases
+ {:test {:extra-paths ["test"]
+         :main-opts ["-m" "com.latypoff.agentic.test-runner"]}
+  :demo {:extra-paths ["examples"]
+         :ns-default heal-demo
+         :exec-fn heal-demo/run}
+  :fake-agent {:extra-paths ["examples"]
+               :main-opts ["-m" "fake-agent"]}}}
