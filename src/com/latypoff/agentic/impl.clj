@@ -9,6 +9,7 @@
             [clojure.pprint :as pprint]
             [clojure.stacktrace :as stack]
             [clojure.string :as str]
+            [clojure.tools.logging :as log]
             [com.latypoff.agentic.control :as control])
   (:import [java.net InetSocketAddress Socket]))
 
@@ -210,6 +211,27 @@
     (spit f prompt)
     f))
 
+(defn- await-logged-process
+  "Wait for `proc` without touching the host stdin/stdout/stderr.
+
+  Child stdin is a pipe we close (EOF) unless the caller already
+  redirected it with `process/from-file`. Child stdout/stderr are
+  slurped off-thread so the pipes cannot fill, then logged."
+  [proc]
+  (let [out (future (try (slurp (process/stdout proc)) (catch Exception _ "")))
+        err (future (try (slurp (process/stderr proc)) (catch Exception _ "")))]
+    (try
+      (.close (process/stdin proc))
+      (catch Exception _))
+    (let [exit @(process/exit-ref proc)
+          out-s (str @out)
+          err-s (str @err)]
+      (when-not (str/blank? out-s)
+        (log/info out-s))
+      (when-not (str/blank? err-s)
+        (log/warn err-s))
+      exit)))
+
 (defn- run-agent
   "Run the selected coding agent.
 
@@ -217,12 +239,12 @@
   with the context map and must return an exit code.
 
   Otherwise switch on `control/agent-vendor` and exec the real headless
-  CLI inline via `clojure.java.process` — command, stdin, and wait live
-  in this one place:
+  CLI inline via `clojure.java.process`. The child never inherits the
+  host stdin/stdout/stderr:
 
     :grok-build    grok --prompt-file <file>
-    :claude-code   claude -p           (prompt on stdin)
-    :codex         codex exec -        (prompt on stdin)
+    :claude-code   claude -p           (prompt file as child stdin)
+    :codex         codex exec -        (prompt file as child stdin)
     :opencode      opencode run --file <file> …"
   [{:keys [prompt-file] :as ctx}]
   (let [override *agent-runner*
@@ -233,37 +255,37 @@
       :else
       (try
         (let [path (.getAbsolutePath ^java.io.File (io/file prompt-file))
-              inherit {:out :inherit :err :inherit}
-              from-prompt (assoc inherit :in (process/from-file prompt-file))]
+              ;; pipes, not :inherit — host stdio stays under the app
+              captured {:out :pipe :err :pipe}
+              from-prompt (assoc captured :in (process/from-file prompt-file))]
           (case vendor
             :grok-build
-            (do (println "agentic: running grok --prompt-file" path)
-                @(process/exit-ref
-                  (process/start inherit "grok" "--prompt-file" path)))
+            (do (log/info "agentic: running grok --prompt-file" path)
+                (await-logged-process
+                 (process/start captured "grok" "--prompt-file" path)))
 
             :claude-code
-            (do (println "agentic: running claude -p")
-                @(process/exit-ref
-                  (process/start from-prompt "claude" "-p")))
+            (do (log/info "agentic: running claude -p")
+                (await-logged-process
+                 (process/start from-prompt "claude" "-p")))
 
             :codex
-            (do (println "agentic: running codex exec -")
-                @(process/exit-ref
-                  (process/start from-prompt "codex" "exec" "-")))
+            (do (log/info "agentic: running codex exec -")
+                (await-logged-process
+                 (process/start from-prompt "codex" "exec" "-")))
 
             :opencode
-            (do (println "agentic: running opencode run --file" path)
-                @(process/exit-ref
-                  (process/start inherit
-                                 "opencode" "run"
-                                 "--file" path
-                                 "Follow the attached prompt file exactly.")))
+            (do (log/info "agentic: running opencode run --file" path)
+                (await-logged-process
+                 (process/start captured
+                                "opencode" "run"
+                                "--file" path
+                                "Follow the attached prompt file exactly.")))
 
             (throw (ex-info (str "Unknown agent-vendor: " vendor)
                             {:agent-vendor vendor}))))
         (catch java.io.IOException e
-          (binding [*out* *err*]
-            (println "agentic: failed to start" vendor "-" (ex-message e)))
+          (log/error e "agentic: failed to start" vendor)
           127)))))
 
 (defn- successful-exit?
@@ -289,7 +311,7 @@
             (let [prompt (build-prompt incident host (:port repl))
                   file (prompt-file prompt)]
               (try
-                (println (str "agentic: socket REPL on " host ":" (:port repl)))
+                (log/info "agentic: socket REPL on" (str host ":" (:port repl)))
                 (let [code (run-agent {:host host
                                        :port (:port repl)
                                        :prompt prompt

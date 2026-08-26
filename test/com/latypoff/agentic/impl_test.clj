@@ -48,6 +48,15 @@
     (is (str/includes? (:form-meta formatted) ":line"))
     (is (str/includes? (:form-meta formatted) "17"))))
 
+(deftest library-does-not-write-host-out-or-err
+  (let [err (java.io.StringWriter.)
+        out (with-out-str
+              (binding [*err* err]
+                (binding [impl/*agent-runner* (fn [_] 0)]
+                  (impl/exception-handler (sample-incident)))))]
+    (is (str/blank? out))
+    (is (str/blank? (str err)))))
+
 (deftest unsuccessful-agent-exit-returns-nil
   (binding [impl/*agent-runner* (fn [_] 1)]
     (is (nil? (impl/exception-handler (sample-incident)))))

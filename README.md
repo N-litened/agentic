@@ -92,11 +92,15 @@ Leaving `current-result` nil, or exiting non-zero, rethrows the original excepti
 | keyword | invocation |
 | --- | --- |
 | `:grok-build` | `grok --prompt-file <tempfile>` (`-p` / `--single` is the short form) |
-| `:claude-code` | `claude -p` with the prompt on stdin |
-| `:codex` | `codex exec -` (stdin is the full prompt) |
+| `:claude-code` | `claude -p` with the prompt file as the **child's** stdin |
+| `:codex` | `codex exec -` with the prompt file as the **child's** stdin |
 | `:opencode` | `opencode run --file <tempfile> …` |
 
-The prompt is always written to a temp file (large incidents will not blow `ARG_MAX`).
+The prompt is always written to a temp file (large incidents will not blow `ARG_MAX`). The child process does **not** inherit the host stdin, stdout, or stderr: its stdout/stderr are captured and written through `clojure.tools.logging`, and its stdin is either the prompt file or a closed pipe (EOF), never the host `*in*`.
+
+## Logging
+
+This library does not write to the host `*out*` / `*err*`. Operational messages and captured agent output go through [`clojure.tools.logging`](https://github.com/clojure/tools.logging) (`log/info`, `log/warn`, `log/error`). The host application supplies the logging backend (SLF4J, Log4j, `java.util.logging`, …) and therefore keeps full control of stdin/stdout/stderr.
 
 `control/agent-vendor` may also be a function of one argument (a runner context map with `:host`, `:port`, `:prompt`, `:prompt-file`, `:incident`) that returns an integer exit code. Tests bind `com.latypoff.agentic.impl/*agent-runner*` the same way.
 
