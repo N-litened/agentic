@@ -4,17 +4,13 @@
   Public entry: `exception-handler`. Tests bind `*agent-runner*` to avoid
   invoking a real `grok`/`claude`/`codex`/`opencode` process."
   (:require [clojure.core.server :as server]
+            [clojure.java.io :as io]
+            [clojure.java.process :as process]
             [clojure.pprint :as pprint]
+            [clojure.stacktrace :as stack]
             [clojure.string :as str]
             [com.latypoff.agentic.control :as control])
-  (:import [java.io
-            BufferedReader
-            File
-            InputStreamReader
-            OutputStreamWriter
-            PrintWriter]
-           [java.net InetSocketAddress Socket]
-           [java.util UUID]))
+  (:import [java.net InetSocketAddress Socket]))
 
 (set! *warn-on-reflection* true)
 
@@ -96,9 +92,7 @@
 (defn- stacktrace-str
   [^Throwable t]
   (when t
-    (let [sw (java.io.StringWriter.)]
-      (.printStackTrace t (PrintWriter. sw))
-      (str sw))))
+    (with-out-str (stack/print-cause-trace t))))
 
 (defn format-incident
   "Pretty-printed incident plus the separately called-out exception fields
@@ -166,24 +160,20 @@
                      (.setTcpNoDelay true))
                    (catch Exception _ nil))]
         (if sock
-          (let [^Socket sock sock]
+          (with-open [^Socket sock sock
+                      w (io/writer sock :encoding "UTF-8")
+                      r (io/reader sock :encoding "UTF-8")]
+            (binding [*out* w]
+              (println form-str)
+              (println ":repl/quit")
+              (flush))
             (try
-              (let [w (PrintWriter. (OutputStreamWriter. (.getOutputStream sock) "UTF-8") true)
-                    r (BufferedReader. (InputStreamReader. (.getInputStream sock) "UTF-8"))]
-                (.println w (str form-str))
-                (.println w ":repl/quit")
-                (.flush w)
-                ;; Drain until the server closes or the read times out — this
-                ;; gives the REPL thread time to finish the eval.
-                (try
-                  (loop []
-                    (when-not (neg? (.read r))
-                      (recur)))
-                  (catch java.net.SocketTimeoutException _)
-                  (catch java.net.SocketException _))
-                true)
-              (finally
-                (try (.close sock) (catch Exception _)))))
+              (loop []
+                (when-not (neg? (.read ^java.io.Reader r))
+                  (recur)))
+              (catch java.net.SocketTimeoutException _)
+              (catch java.net.SocketException _))
+            true)
           (if (>= (System/currentTimeMillis) deadline)
             (throw (ex-info "Could not connect to agentic socket REPL"
                             {:host host :port port}))
@@ -192,7 +182,7 @@
 
 (defn- start-socket-repl
   [host]
-  (let [name (str "agentic-" (UUID/randomUUID))
+  (let [name (str "agentic-" (random-uuid))
         socket (server/start-server
                 {:name name
                  :address host
@@ -214,9 +204,9 @@
     (catch Throwable _)))
 
 (defn- prompt-file
-  ^File [prompt]
-  (let [f (File/createTempFile "agentic-prompt-" ".txt")]
-    (.deleteOnExit f)
+  [prompt]
+  (let [f (doto (java.io.File/createTempFile "agentic-prompt-" ".txt")
+            (.deleteOnExit))]
     (spit f prompt)
     f))
 
@@ -227,13 +217,14 @@
   with the context map and must return an exit code.
 
   Otherwise switch on `control/agent-vendor` and exec the real headless
-  CLI inline — command, stdin, and wait live in this one place:
+  CLI inline via `clojure.java.process` — command, stdin, and wait live
+  in this one place:
 
     :grok-build    grok --prompt-file <file>
     :claude-code   claude -p           (prompt on stdin)
     :codex         codex exec -        (prompt on stdin)
     :opencode      opencode run --file <file> …"
-  [{:keys [^File prompt-file] :as ctx}]
+  [{:keys [prompt-file] :as ctx}]
   (let [override *agent-runner*
         vendor (or (var-get #'control/agent-vendor) :grok-build)]
     (cond
@@ -241,41 +232,38 @@
       (fn? vendor) (vendor ctx)
       :else
       (try
-        (let [^String path (.getAbsolutePath prompt-file)
-              ^ProcessBuilder pb
-              (case vendor
-                :grok-build
-                (doto (ProcessBuilder. (java.util.ArrayList. ^java.util.Collection ["grok" "--prompt-file" path]))
-                  (.inheritIO))
+        (let [path (.getAbsolutePath ^java.io.File (io/file prompt-file))
+              inherit {:out :inherit :err :inherit}
+              from-prompt (assoc inherit :in (process/from-file prompt-file))]
+          (case vendor
+            :grok-build
+            (do (println "agentic: running grok --prompt-file" path)
+                @(process/exit-ref
+                  (process/start inherit "grok" "--prompt-file" path)))
 
-                :claude-code
-                (doto (ProcessBuilder. (java.util.ArrayList. ["claude" "-p"]))
-                  (.inheritIO)
-                  (.redirectInput prompt-file))
+            :claude-code
+            (do (println "agentic: running claude -p")
+                @(process/exit-ref
+                  (process/start from-prompt "claude" "-p")))
 
-                :codex
-                (doto (ProcessBuilder. (java.util.ArrayList. ["codex" "exec" "-"]))
-                  (.inheritIO)
-                  (.redirectInput prompt-file))
+            :codex
+            (do (println "agentic: running codex exec -")
+                @(process/exit-ref
+                  (process/start from-prompt "codex" "exec" "-")))
 
-                :opencode
-                (doto (ProcessBuilder. (java.util.ArrayList. ^java.util.Collection ["opencode" "run"
-                                                                                   "--file" path
-                                                                                   "Follow the attached prompt file exactly."]))
-                  (.inheritIO))
+            :opencode
+            (do (println "agentic: running opencode run --file" path)
+                @(process/exit-ref
+                  (process/start inherit
+                                 "opencode" "run"
+                                 "--file" path
+                                 "Follow the attached prompt file exactly.")))
 
-                (throw (ex-info (str "Unknown agent-vendor: " vendor)
-                                {:agent-vendor vendor})))]
-          (println "agentic: running" (str/join " " (.command pb)))
-          (let [p (.start pb)]
-            (try
-              (.waitFor p)
-              (finally
-                (when (.isAlive p)
-                  (.destroyForcibly p))))))
+            (throw (ex-info (str "Unknown agent-vendor: " vendor)
+                            {:agent-vendor vendor}))))
         (catch java.io.IOException e
           (binding [*out* *err*]
-            (println "agentic: failed to start" vendor "-" (.getMessage e)))
+            (println "agentic: failed to start" vendor "-" (ex-message e)))
           127)))))
 
 (defn- successful-exit?
@@ -311,7 +299,7 @@
                            (when (successful-exit? code)
                              (var-get #'control/current-result))))
                 (finally
-                  (try (.delete file) (catch Exception _)))))
+                  (io/delete-file file :silently))))
             (finally
               (stop-socket-repl repl))))
         (finally

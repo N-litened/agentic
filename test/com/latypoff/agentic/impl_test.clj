@@ -1,5 +1,6 @@
 (ns com.latypoff.agentic.impl-test
   (:require [clojure.java.io :as io]
+            [clojure.java.process :as process]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [com.latypoff.agentic.control :as control]
@@ -161,8 +162,7 @@
     (is (.isFile (io/file script)))
     (binding [impl/*agent-runner*
               (fn [{:keys [host port]}]
-                (let [pb (ProcessBuilder. ["bash" script host (str port)])]
-                  (.waitFor (.start pb))))]
+                @(process/exit-ref (process/start "bash" script host (str port))))]
       (is (= {:action :return :value :healed-offline}
              (impl/exception-handler (sample-incident)))))))
 

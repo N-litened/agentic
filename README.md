@@ -10,7 +10,7 @@ Public API: **one macro**, `com.latypoff.agentic/defn`.
 
 ## Install
 
-deps.edn only (Clojure 1.11+; developed on 1.12):
+deps.edn only (Clojure 1.12+, for `clojure.java.process`):
 
 ```clojure
 {:deps {com.latypoff/agentic
