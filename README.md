@@ -75,7 +75,7 @@ The prompt tells the agent to:
 
 1. Connect to the socket REPL (host, port, and an `nc` example are in the prompt).
 2. Read `com.latypoff.agentic.control/current-incident`.
-3. Inspect live state. Apply runtime patches (`alter-var-root`, `intern`, `eval`, …) that help this error and similar ones later.
+3. Inspect live state. If it finds a bug that caused the incident, re-evaluate a corrected function body in the live JVM so later calls use the fix, and (when `:source-path` is a local writable file, not a jar) edit that source so the fix persists.
 4. Before exiting, set the result the host will honor:
 
 ```clojure
@@ -139,7 +139,7 @@ clojure -X:demo                         # offline fake runner
 clojure -X:demo :vendor :grok-build     # or :claude-code, :codex, :opencode
 ```
 
-That runs `examples/heal_demo.clj`. `average` is intentionally broken (it divides by the `count` function). Without `:vendor`, a fake agent connects to the live socket REPL and sets `{:action :return :value :healed}`. With `:vendor`, that CLI is invoked instead.
+That runs `examples/heal_demo.clj` and prints `(average …)` for `[1 2 3 4 5]`, `[]`, and `["1" "2" "3" "4" "5"]`. `average` is intentionally broken (it divides by the `count` function). Without `:vendor`, a fake agent connects to the live socket REPL, re-evaluates a corrected function body, and returns the computed average. With `:vendor`, that CLI is invoked instead.
 
 ## Tests
 

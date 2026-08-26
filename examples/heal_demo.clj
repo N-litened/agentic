@@ -8,9 +8,10 @@
       clojure -X:demo :vendor :opencode
 
   `average` is intentionally broken (`count` used as a divisor).
-  Without :vendor, a fake agent connects to the live socket REPL and
-  sets `:action :return`, so the call returns `:healed`. With :vendor,
-  that CLI is invoked instead."
+  Without :vendor, a fake agent connects to the live socket REPL,
+  re-evaluates a corrected function body, and returns the computed
+  average for the throwing call. With :vendor, that CLI is invoked
+  instead."
   (:require [com.latypoff.agentic :as agentic]
             [com.latypoff.agentic.control :as control]
             [com.latypoff.agentic.impl :as impl]))
@@ -22,15 +23,45 @@
         avg (/ (reduce + collection) count)]
     (if (pos? n) avg nil)))
 
+(def ^:private demo-inputs
+  [[1 2 3 4 5]
+   []
+   ["1" "2" "3" "4" "5"]])
+
+(def ^:private expected-offline
+  [3 nil 3])
+
 (defn- fake-runner
   "Same contract as a real runner: connect to the printed port,
-  eval live code, return truthy on success."
+  eval live code, return truthy on success.
+
+  Re-evaluates a corrected `average` (numbers, empty, numeric strings)
+  and sets `:action :return` to that value for this invocation."
   [{:keys [host port]}]
   (println "fake-agent: connecting to" (str host ":" port))
   (impl/socket-repl-eval
    host port
-   "(alter-var-root #'com.latypoff.agentic.control/current-result (constantly {:action :return :value :healed}))")
-  (println "fake-agent: set current-result to {:action :return :value :healed}")
+   (str
+    "(do"
+    "  (alter-var-root #'heal-demo/average"
+    "    (constantly"
+    "      (fn [collection]"
+    "        (let [nums (map (fn [x]"
+    "                          (cond"
+    "                            (number? x) x"
+    "                            (string? x) (let [n (read-string x)]"
+    "                                          (if (number? n)"
+    "                                            n"
+    "                                            (throw (ex-info \"not a number\" {:x x}))))"
+    "                            :else (throw (ex-info \"not a number\" {:x x}))))"
+    "                        collection)"
+    "              n (count nums)]"
+    "          (when (pos? n)"
+    "            (/ (reduce + nums) n))))))"
+    "  (let [args (:defn-args com.latypoff.agentic.control/current-incident)]"
+    "    (alter-var-root #'com.latypoff.agentic.control/current-result"
+    "      (constantly {:action :return :value (apply heal-demo/average args)}))))"))
+  (println "fake-agent: re-evaluated average and set current-result")
   true)
 
 (defn- coerce-vendor
@@ -42,6 +73,12 @@
     :else (throw (ex-info ":vendor must be a keyword or string"
                           {:vendor vendor}))))
 
+(defn- print-average
+  [coll]
+  (let [result (average coll)]
+    (println (str "(average " (pr-str coll) ") =>") (pr-str result))
+    result))
+
 (defn run
   [{:keys [vendor]}]
   (let [vendor (coerce-vendor vendor)]
@@ -49,19 +86,17 @@
       (throw (ex-info "Unknown :vendor"
                       {:vendor vendor
                        :allowed #{:grok-build :claude-code :codex :opencode}})))
-    (println "Calling (average [1 2 3]) ...")
     (if vendor
       (do
         (alter-var-root #'control/agent-vendor (constantly vendor))
         (println "control/agent-vendor:" control/agent-vendor)
-        (let [result (average [1 2 3])]
-          (println "Result:" result)
-          result))
+        (mapv print-average demo-inputs))
       (do
         (println "No :vendor — using offline fake runner")
         (binding [impl/*agent-runner* fake-runner]
-          (let [result (average [1 2 3])]
-            (println "Result:" result)
-            (when-not (= :healed result)
-              (throw (ex-info "offline heal demo failed" {:result result})))
-            result))))))
+          (let [results (mapv print-average demo-inputs)]
+            (when-not (= expected-offline results)
+              (throw (ex-info "offline heal demo failed"
+                              {:results results
+                               :expected expected-offline})))
+            results))))))

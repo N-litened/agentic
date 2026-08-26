@@ -75,9 +75,15 @@ The REPL starts in the `user` namespace. Use fully-qualified names, or
 1. Read `com.latypoff.agentic.control/current-incident` — the incident map
    for this call (`:throwable`, `:defn-sym`, `:defn-args`, `:ns`,
    `:source-path`, `:form`, `:locals`).
-2. Inspect process state. Apply runtime patches if they will help this
-   error and similar ones later (`alter-var-root`, `intern`, `eval`,
-   `require` :reload, etc.).
+2. Inspect process state. If you find a bug that led to this incident:
+   - Fix it at runtime by re-evaluating the corrected function body in
+     this live JVM (`eval`, `intern`, `alter-var-root`, `require` :reload)
+     so later calls use the fix.
+   - When the defining source is local (a writable file path in
+     `:source-path`, not a jar or other remote resource), also edit that
+     file so the fix persists after this process exits.
+   Apply any other runtime patches that will help this error and similar
+   ones later.
 3. Set the result the host will interpret:
 
        (alter-var-root #'com.latypoff.agentic.control/current-result

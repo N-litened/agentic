@@ -83,6 +83,8 @@
         (is (re-find #"current-result" p))
         (is (re-find #"nc 127\.0\.0\.1" p))
         (is (re-find #"completes unsuccessfully" p))
+        (is (re-find #"re-evaluating the corrected function body" p))
+        (is (re-find #"writable file path in" p))
         (is (not (re-find #"Exit 0" p)))
         (is (not (re-find #"exiting non-zero" p)))))))
 
