@@ -21,7 +21,7 @@
     (is (= 'sample-fn (second exp)))
     (is (tree-has? exp #{'try}))
     (is (tree-has? exp (fn [x] (and (seq? x) (= 'catch (first x))))))
-    (is (tree-has? exp #{'Throwable}))))
+    (is (tree-has? exp #{'Throwable 'java.lang.Throwable}))))
 
 (deftest multi-arity-and-docstring
   (agentic/defn add

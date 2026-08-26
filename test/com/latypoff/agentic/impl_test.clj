@@ -1,6 +1,7 @@
 (ns com.latypoff.agentic.impl-test
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
             [com.latypoff.agentic.control :as control]
             [com.latypoff.agentic.impl :as impl]))
 
@@ -87,7 +88,13 @@
 
 (deftest source-path-fallback-does-not-throw
   (is (= "captured.clj" (impl/source-path "captured.clj")))
-  (is (nil? (impl/source-path nil))))
+  (is (nil? (impl/source-path nil)))
+  (when-let [v (try (find-var 'clojure.core/*source-path*) (catch Throwable _))]
+    (push-thread-bindings {v "live.clj"})
+    (try
+      (is (= "live.clj" (impl/source-path "captured.clj")))
+      (finally
+        (pop-thread-bindings)))))
 
 (deftest mutex-serializes-concurrent-handlers
   (let [log (atom [])
@@ -132,6 +139,28 @@
               0)]
     (is (= {:action :return :value :healed}
            (impl/exception-handler (sample-incident))))))
+
+(deftest shipped-cli-invocations-use-real-flags
+  (let [f (io/file "/tmp/agentic-prompt.txt")
+        path (.getAbsolutePath f)
+        cmd (fn [k] (#'impl/agent-command k f))]
+    (is (= ["grok" "--prompt-file" path] (cmd :grok-build)))
+    (is (= ["claude" "-p"] (cmd :claude-code)))
+    (is (= ["codex" "exec" "-"] (cmd :codex)))
+    (is (= ["opencode" "run" "--file" path
+            "Follow the attached prompt file exactly."]
+           (cmd :opencode)))
+    (is (thrown? clojure.lang.ExceptionInfo (cmd :nope)))))
+
+(deftest bash-fake-agent-script-roundtrip
+  (let [script (.getAbsolutePath (io/file "examples/fake_agent.sh"))]
+    (is (.isFile (io/file script)))
+    (binding [impl/*agent-runner*
+              (fn [{:keys [host port]}]
+                (let [pb (ProcessBuilder. ["bash" script host (str port)])]
+                  (.waitFor (.start pb))))]
+      (is (= {:action :return :value :healed-offline}
+             (impl/exception-handler (sample-incident)))))))
 
 (deftest control-agent-fn-is-honored
   (let [prev control/agent]

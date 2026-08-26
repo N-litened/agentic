@@ -31,16 +31,25 @@
 (def ^:private default-print-length 32)
 (def ^:private default-print-level 6)
 
-(defn source-path
-  "Resolve `*source-path*` when that var exists and is bound; otherwise
-  return `fallback` (typically `*file*` captured at macro-expansion time).
+(defn- usable-source-path?
+  "The compiler interns `clojure.core/*source-path*` with sentinel
+  `NO_SOURCE_FILE` even though core.clj never defines it. Treat sentinels
+  and blanks as unset so the expansion-time `*file*` fallback can win."
+  [val]
+  (and (string? val)
+       (not (str/blank? val))
+       (not= val "NO_SOURCE_FILE")
+       (not= val "NO_SOURCE_PATH")))
 
-  There is no `*source-path*` in clojure.core. Never throw if it is absent."
+(defn source-path
+  "Resolve `*source-path*` when that var exists, is bound, and holds a
+  real path; otherwise return `fallback` (typically `*file*` captured at
+  macro-expansion time). Never throw if the var is absent."
   [fallback]
   (letfn [(read-var [v]
             (when (and (var? v) (bound? v))
               (let [val (var-get v)]
-                (when (some? val) val))))]
+                (when (usable-source-path? val) val))))]
     (or (try
           (read-var (resolve '*source-path*))
           (catch Throwable _))
@@ -162,23 +171,24 @@
                      (.setTcpNoDelay true))
                    (catch Exception _ nil))]
         (if sock
-          (try
-            (let [w (PrintWriter. (OutputStreamWriter. (.getOutputStream sock) "UTF-8") true)
-                  r (BufferedReader. (InputStreamReader. (.getInputStream sock) "UTF-8"))]
-              (.println w (str form-str))
-              (.println w ":repl/quit")
-              (.flush w)
-              ;; Drain until the server closes or the read times out — this
-              ;; gives the REPL thread time to finish the eval.
-              (try
-                (loop []
-                  (when-not (neg? (.read r))
-                    (recur)))
-                (catch java.net.SocketTimeoutException _)
-                (catch java.net.SocketException _))
-              true)
-            (finally
-              (try (.close sock) (catch Exception _))))
+          (let [^Socket sock sock]
+            (try
+              (let [w (PrintWriter. (OutputStreamWriter. (.getOutputStream sock) "UTF-8") true)
+                    r (BufferedReader. (InputStreamReader. (.getInputStream sock) "UTF-8"))]
+                (.println w (str form-str))
+                (.println w ":repl/quit")
+                (.flush w)
+                ;; Drain until the server closes or the read times out — this
+                ;; gives the REPL thread time to finish the eval.
+                (try
+                  (loop []
+                    (when-not (neg? (.read r))
+                      (recur)))
+                  (catch java.net.SocketTimeoutException _)
+                  (catch java.net.SocketException _))
+                true)
+              (finally
+                (try (.close sock) (catch Exception _)))))
           (if (>= (System/currentTimeMillis) deadline)
             (throw (ex-info "Could not connect to agentic socket REPL"
                             {:host host :port port}))

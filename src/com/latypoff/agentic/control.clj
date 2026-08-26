@@ -2,7 +2,8 @@
   "Host-tunable vars for the runtime heal loop.
 
   Bind or `alter-var-root` these from the integrating process. Do not put
-  API keys here — the already-logged-in CLI coding agent is the credential.")
+  API keys here — the already-logged-in CLI coding agent is the credential."
+  (:refer-clojure :exclude [agent]))
 
 (def current-exception
   "Incident map for the exception currently being handled, or nil.
