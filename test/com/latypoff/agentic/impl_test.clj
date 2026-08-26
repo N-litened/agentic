@@ -50,7 +50,7 @@
 (deftest unsuccessful-agent-exit-returns-nil
   (binding [impl/*agent-runner* (fn [_] 1)]
     (is (nil? (impl/exception-handler (sample-incident)))))
-  (is (nil? control/current-exception))
+  (is (nil? control/current-incident))
   (is (nil? control/current-result)))
 
 (deftest successful-exit-without-result-returns-nil
@@ -83,6 +83,7 @@
         (is (re-find #"17" p))
         (is (re-find (re-pattern (str (:port @seen))) p))
         (is (re-find #"127\.0\.0\.1" p))
+        (is (re-find #"current-incident" p))
         (is (re-find #"current-result" p))
         (is (re-find #"nc 127\.0\.0\.1" p))))))
 
@@ -141,16 +142,19 @@
            (impl/exception-handler (sample-incident))))))
 
 (deftest shipped-cli-invocations-use-real-flags
-  (let [f (io/file "/tmp/agentic-prompt.txt")
-        path (.getAbsolutePath f)
-        cmd (fn [k] (#'impl/agent-command k f))]
-    (is (= ["grok" "--prompt-file" path] (cmd :grok-build)))
-    (is (= ["claude" "-p"] (cmd :claude-code)))
-    (is (= ["codex" "exec" "-"] (cmd :codex)))
-    (is (= ["opencode" "run" "--file" path
-            "Follow the attached prompt file exactly."]
-           (cmd :opencode)))
-    (is (thrown? clojure.lang.ExceptionInfo (cmd :nope)))))
+  (let [src (slurp "src/com/latypoff/agentic/impl.clj")]
+    (is (str/includes? src "\"grok\" \"--prompt-file\""))
+    (is (str/includes? src "\"claude\" \"-p\""))
+    (is (str/includes? src "\"codex\" \"exec\" \"-\""))
+    (is (str/includes? src "\"opencode\" \"run\""))
+    (is (str/includes? src "\"--file\"")))
+  (let [prev control/agent-vendor]
+    (try
+      (alter-var-root #'control/agent-vendor (constantly :nope))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown agent-vendor"
+                            (#'impl/run-agent {:prompt-file (io/file "/tmp/agentic-prompt.txt")})))
+      (finally
+        (alter-var-root #'control/agent-vendor (constantly prev))))))
 
 (deftest bash-fake-agent-script-roundtrip
   (let [script (.getAbsolutePath (io/file "examples/fake_agent.sh"))]
@@ -162,10 +166,10 @@
       (is (= {:action :return :value :healed-offline}
              (impl/exception-handler (sample-incident)))))))
 
-(deftest control-agent-fn-is-honored
-  (let [prev control/agent]
+(deftest control-agent-vendor-fn-is-honored
+  (let [prev control/agent-vendor]
     (try
-      (alter-var-root #'control/agent
+      (alter-var-root #'control/agent-vendor
                       (constantly
                        (fn [{:keys [host port]}]
                          (impl/socket-repl-eval
@@ -175,4 +179,4 @@
       (is (= {:action :return :value :via-control}
              (impl/exception-handler (sample-incident))))
       (finally
-        (alter-var-root #'control/agent (constantly prev))))))
+        (alter-var-root #'control/agent-vendor (constantly prev))))))

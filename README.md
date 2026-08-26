@@ -33,7 +33,7 @@ When published to Clojars the same coord is `com.latypoff/agentic`.
   (risky-work x))
 
 ;; Default agent is Grok Build (`grok`). To use another shipped CLI:
-(alter-var-root #'control/agent (constantly :claude-code))  ;; or :codex, :opencode
+(alter-var-root #'control/agent-vendor (constantly :claude-code))  ;; or :codex, :opencode
 ```
 
 Write `agentic/defn` instead of `defn` for the functions you care about. Name, docstring, attr-map, multi-arity, and pre/post maps are delegated to `clojure.core/defn`. Each arity **body** is wrapped in `try`/`catch Throwable`; pre/post maps stay outside the `try`.
@@ -56,9 +56,9 @@ The catch calls `com.latypoff.agentic.impl/exception-handler` with one map:
 
 The handler is serialized on a global mutex (one agent at a time). It:
 
-1. `alter-var-root`s `control/current-exception` to that map and `control/current-result` to `nil` (both reset to `nil` in `finally`).
+1. `alter-var-root`s `control/current-incident` to that map and `control/current-result` to `nil` (both reset to `nil` in `finally`).
 2. Starts a Clojure stdlib socket REPL on `127.0.0.1` with an ephemeral port, then stops it in `finally`.
-3. Runs the selected CLI agent with a pretty-printed prompt (bounded `*print-length*` / `*print-level*` so huge args cannot explode). Class, message, `ex-data`, stack trace, and form metadata are included separately.
+3. Runs the selected CLI agent with a pretty-printed prompt (bounded to `*print-length*` 16 / `*print-level*` 4 so huge args cannot explode). Class, message, `ex-data`, stack trace, and form metadata are included separately.
 4. On a successful process exit, returns the root value of `control/current-result`. Unsuccessful exit, or success with `current-result` still `nil`, returns `nil`.
 
 The catch interprets that return:
@@ -74,7 +74,7 @@ The catch interprets that return:
 The prompt tells the agent to:
 
 1. Connect to the socket REPL (host, port, and an `nc` example are in the prompt).
-2. Read `com.latypoff.agentic.control/current-exception`.
+2. Read `com.latypoff.agentic.control/current-incident`.
 3. Inspect live state. Apply runtime patches (`alter-var-root`, `intern`, `eval`, …) that help this error and similar ones later.
 4. Before exiting, set the result the host will honor:
 
@@ -87,7 +87,7 @@ Leaving `current-result` nil, or exiting non-zero, rethrows the original excepti
 
 ## Agent selection
 
-`com.latypoff.agentic.control/agent` is `:grok-build` by default. Keywords shipped out of the box (real headless flags, not invented CLIs):
+`com.latypoff.agentic.control/agent-vendor` is `:grok-build` by default. Keywords shipped out of the box (real headless flags, not invented CLIs):
 
 | keyword | invocation |
 | --- | --- |
@@ -98,7 +98,7 @@ Leaving `current-result` nil, or exiting non-zero, rethrows the original excepti
 
 The prompt is always written to a temp file (large incidents will not blow `ARG_MAX`).
 
-`control/agent` may also be a function of one argument (a runner context map with `:host`, `:port`, `:prompt`, `:prompt-file`, `:incident`) that returns an integer exit code. Tests bind `com.latypoff.agentic.impl/*agent-runner*` the same way.
+`control/agent-vendor` may also be a function of one argument (a runner context map with `:host`, `:port`, `:prompt`, `:prompt-file`, `:incident`) that returns an integer exit code. Tests bind `com.latypoff.agentic.impl/*agent-runner*` the same way.
 
 ## Prompt placeholders
 
@@ -116,7 +116,7 @@ The root value of `com.latypoff.agentic.control/agent-prompt` is a string templa
 | `{{form-meta}}` | metadata of `:form` (`:line`, `:column`, …) |
 | `{{connect-example}}` | concrete `nc` / socket connect snippet |
 
-Print bounds are `control/print-length` (default 32) and `control/print-level` (default 6).
+Print bounds are fixed in `impl`: `*print-length*` 16 and `*print-level*` 4.
 
 ## Namespaces
 
@@ -124,7 +124,7 @@ Print bounds are `control/print-length` (default 32) and `control/print-level` (
 | --- | --- |
 | `com.latypoff.agentic` | public `defn` macro |
 | `com.latypoff.agentic.impl` | `exception-handler`, socket REPL, CLI runners |
-| `com.latypoff.agentic.control` | `current-exception`, `current-result`, `agent-prompt`, `agent` |
+| `com.latypoff.agentic.control` | `current-incident`, `current-result`, `agent-prompt`, `agent-vendor` |
 
 ## Offline demo
 
@@ -136,7 +136,7 @@ clojure -X:demo
 
 That calls `(divide 10 0)` (see `examples/divide.clj`). A fake agent connects to the live socket REPL and sets `{:action :return :value :healed}`, so the call returns `:healed` instead of throwing.
 
-`examples/fake_agent.sh` and `examples/fake_agent.clj` are documented stand-ins you can point `control/agent` at:
+`examples/fake_agent.sh` and `examples/fake_agent.clj` are documented stand-ins you can point `control/agent-vendor` at:
 
 ```bash
 # once the handler has printed host:port

@@ -24,12 +24,12 @@
 
 (def ^:dynamic *agent-runner*
   "If bound to a fn, it is invoked instead of the CLI selected by
-  `control/agent`. The fn receives the runner context map and must return
-  an integer exit code."
+  `control/agent-vendor`. The fn receives the runner context map and must
+  return an integer exit code."
   nil)
 
-(def ^:private default-print-length 32)
-(def ^:private default-print-level 6)
+(def ^:private print-length 16)
+(def ^:private print-level 4)
 
 (defn- usable-source-path?
   "The compiler interns `clojure.core/*source-path*` with sentinel
@@ -81,22 +81,17 @@
     :else
     (throw original)))
 
-(defn- print-bounds []
-  {:length (or (var-get #'control/print-length) default-print-length)
-   :level (or (var-get #'control/print-level) default-print-level)})
-
 (defn bounded-pr-str
-  "Pretty-print `x` with `*print-length*` / `*print-level*` bounds so huge
+  "Pretty-print `x` with `*print-length*` 16 / `*print-level*` 4 so huge
   args or locals cannot explode the prompt."
   [x]
-  (let [{:keys [length level]} (print-bounds)]
-    (binding [*print-length* length
-              *print-level* level
-              *print-meta* false
-              pprint/*print-right-margin* 100
-              pprint/*print-miser-width* 40
-              pprint/*print-pprint-dispatch* pprint/simple-dispatch]
-      (str/trimr (with-out-str (pprint/pprint x))))))
+  (binding [*print-length* print-length
+            *print-level* print-level
+            *print-meta* false
+            pprint/*print-right-margin* 100
+            pprint/*print-miser-width* 40
+            pprint/*print-pprint-dispatch* pprint/simple-dispatch]
+    (str/trimr (with-out-str (pprint/pprint x)))))
 
 (defn- stacktrace-str
   [^Throwable t]
@@ -136,7 +131,7 @@
        "    # one-shot eval\n"
        "    printf '%s\\n' \\\n"
        "      '(require '\\''[com.latypoff.agentic.control :as ctl])' \\\n"
-       "      'ctl/current-exception' \\\n"
+       "      'ctl/current-incident' \\\n"
        "      '(alter-var-root #'\\''com.latypoff.agentic.control/current-result'\n"
        "      '   (constantly {:action :return :value :healed}))' \\\n"
        "      ':repl/quit' | nc " host " " port "\n"
@@ -211,7 +206,9 @@
      :port (.getLocalPort ^java.net.ServerSocket socket)}))
 
 (defn- stop-socket-repl
-  [name]
+  "Stop the server started by `start-socket-repl`. Accepts that return
+  map and extracts `:name`."
+  [{:keys [name]}]
   (try
     (server/stop-server name)
     (catch Throwable _)))
@@ -223,72 +220,63 @@
     (spit f prompt)
     f))
 
-(defn- agent-command
-  "Real headless invocations. Flags verified against current CLIs:
+(defn- run-agent
+  "Run the selected coding agent.
 
-   grok         --prompt-file (also -p / --single)
-   claude       -p / --print; prompt on stdin
-   codex        exec -   (stdin is the full prompt)
-   opencode     run --file <prompt> <instruction>"
-  [agent-kw ^File file]
-  (let [path (.getAbsolutePath file)]
-    (case agent-kw
-      :grok-build ["grok" "--prompt-file" path]
-      :claude-code ["claude" "-p"]
-      :codex ["codex" "exec" "-"]
-      :opencode ["opencode" "run"
-                 "--file" path
-                 "Follow the attached prompt file exactly."]
-      (throw (ex-info (str "Unknown agent keyword: " agent-kw)
-                      {:agent agent-kw})))))
+  `*agent-runner*` (tests) or a fn in `control/agent-vendor` is called
+  with the context map and must return an exit code.
 
-(defn- stdin-agent?
-  [agent-kw]
-  (contains? #{:claude-code :codex} agent-kw))
+  Otherwise switch on `control/agent-vendor` and exec the real headless
+  CLI inline — command, stdin, and wait live in this one place:
 
-(defn- run-process
-  "Start `args`, optionally feeding `in-file` to stdin. Returns exit code.
-  Missing executables become exit 127."
-  [args in-file]
-  (try
-    (let [pb (ProcessBuilder. ^java.util.List (mapv str args))]
-      (.inheritIO pb)
-      (when in-file
-        (.redirectInput pb ^File in-file))
-      (let [p (.start pb)]
-        (try
-          (.waitFor p)
-          (finally
-            (when (.isAlive p)
-              (.destroyForcibly p))))))
-    (catch java.io.IOException e
-      (binding [*out* *err*]
-        (println "agentic: failed to start" (first args) "-" (.getMessage e)))
-      127)))
-
-(defn- run-cli-agent
-  [agent-kw {:keys [prompt-file]}]
-  (let [cmd (agent-command agent-kw prompt-file)
-        in (when (stdin-agent? agent-kw) prompt-file)]
-    (println "agentic: running" (str/join " " cmd))
-    (run-process cmd in)))
-
-(defn runner-context
-  [incident {:keys [host port]} prompt ^File file]
-  {:host host
-   :port port
-   :prompt prompt
-   :prompt-file file
-   :incident incident})
-
-(defn- invoke-runner
-  [ctx]
-  (let [custom *agent-runner*
-        selected (var-get #'control/agent)]
+    :grok-build    grok --prompt-file <file>
+    :claude-code   claude -p           (prompt on stdin)
+    :codex         codex exec -        (prompt on stdin)
+    :opencode      opencode run --file <file> …"
+  [{:keys [^File prompt-file] :as ctx}]
+  (let [override *agent-runner*
+        vendor (or (var-get #'control/agent-vendor) :grok-build)]
     (cond
-      (fn? custom) (custom ctx)
-      (fn? selected) (selected ctx)
-      :else (run-cli-agent (or selected :grok-build) ctx))))
+      (fn? override) (override ctx)
+      (fn? vendor) (vendor ctx)
+      :else
+      (try
+        (let [^String path (.getAbsolutePath prompt-file)
+              ^ProcessBuilder pb
+              (case vendor
+                :grok-build
+                (doto (ProcessBuilder. (java.util.ArrayList. ^java.util.Collection ["grok" "--prompt-file" path]))
+                  (.inheritIO))
+
+                :claude-code
+                (doto (ProcessBuilder. (java.util.ArrayList. ["claude" "-p"]))
+                  (.inheritIO)
+                  (.redirectInput prompt-file))
+
+                :codex
+                (doto (ProcessBuilder. (java.util.ArrayList. ["codex" "exec" "-"]))
+                  (.inheritIO)
+                  (.redirectInput prompt-file))
+
+                :opencode
+                (doto (ProcessBuilder. (java.util.ArrayList. ^java.util.Collection ["opencode" "run"
+                                                                                   "--file" path
+                                                                                   "Follow the attached prompt file exactly."]))
+                  (.inheritIO))
+
+                (throw (ex-info (str "Unknown agent-vendor: " vendor)
+                                {:agent-vendor vendor})))]
+          (println "agentic: running" (str/join " " (.command pb)))
+          (let [p (.start pb)]
+            (try
+              (.waitFor p)
+              (finally
+                (when (.isAlive p)
+                  (.destroyForcibly p))))))
+        (catch java.io.IOException e
+          (binding [*out* *err*]
+            (println "agentic: failed to start" vendor "-" (.getMessage e)))
+          127)))))
 
 (defn- successful-exit?
   [code]
@@ -297,7 +285,7 @@
 
 (defn exception-handler
   "Serialize on a global mutex, expose the incident on
-  `control/current-exception`, start a loopback socket REPL, run a CLI
+  `control/current-incident`, start a loopback socket REPL, run a CLI
   coding agent, then return `control/current-result` (or nil).
 
   Both control vars are reset to nil in `finally`."
@@ -305,24 +293,28 @@
   (locking handler-lock
     (let [result (volatile! nil)]
       (try
-        (alter-var-root #'control/current-exception (constantly incident))
+        (alter-var-root #'control/current-incident (constantly incident))
         (alter-var-root #'control/current-result (constantly nil))
         (let [host (or (var-get #'control/socket-host) "127.0.0.1")
-              {:keys [name port] :as repl} (start-socket-repl host)]
+              repl (start-socket-repl host)]
           (try
-            (let [prompt (build-prompt incident host port)
+            (let [prompt (build-prompt incident host (:port repl))
                   file (prompt-file prompt)]
               (try
-                (println (str "agentic: socket REPL on " host ":" port))
-                (let [code (invoke-runner (runner-context incident repl prompt file))]
+                (println (str "agentic: socket REPL on " host ":" (:port repl)))
+                (let [code (run-agent {:host host
+                                       :port (:port repl)
+                                       :prompt prompt
+                                       :prompt-file file
+                                       :incident incident})]
                   (vreset! result
                            (when (successful-exit? code)
                              (var-get #'control/current-result))))
                 (finally
                   (try (.delete file) (catch Exception _)))))
             (finally
-              (stop-socket-repl name))))
+              (stop-socket-repl repl))))
         (finally
-          (alter-var-root #'control/current-exception (constantly nil))
+          (alter-var-root #'control/current-incident (constantly nil))
           (alter-var-root #'control/current-result (constantly nil))))
       @result)))

@@ -23,7 +23,7 @@
 
 (defn run
   [_]
-  (println "control/agent default:" control/agent)
+  (println "control/agent-vendor default:" control/agent-vendor)
   (println "Calling (divide 10 0) with an offline fake agent...")
   (binding [impl/*agent-runner* fake-runner]
     (let [result (divide 10 0)]

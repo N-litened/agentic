@@ -10,7 +10,7 @@
 #   examples/fake_agent.sh 127.0.0.1 PORT
 #
 # Wired from Clojure with:
-#   (alter-var-root #'com.latypoff.agentic.control/agent
+#   (alter-var-root #'com.latypoff.agentic.control/agent-vendor)
 #     (constantly (fn [{:keys [host port]}]
 #                   (let [pb (ProcessBuilder.
 #                             ["bash" "examples/fake_agent.sh" host (str port)])]
