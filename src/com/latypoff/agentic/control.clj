@@ -10,9 +10,9 @@
   nil)
 
 (def current-result
-  "Result map written by the CLI agent before it exits, or nil.
+  "Result map written by the CLI agent before it finishes, or nil.
 
-  Recognized shapes (see `com.latypoff.agentic.impl/apply-handler-result`):
+  Recognized shapes (interpreted in the `catch` of `com.latypoff.agentic/defn`):
     {:action :return :value RETURN_VALUE}
     {:action :throw :throwable REPLACEMENT}
 
@@ -23,23 +23,21 @@
   "Which coding-agent CLI to invoke. One of:
 
     :grok-build   (default)  `grok --prompt-file <file>`
-    :claude-code             `claude -p` with the prompt on stdin
-    :codex                   `codex exec -` with the prompt on stdin
+    :claude-code             `claude -p` with the prompt on the child's stdin
+    :codex                   `codex exec -` with the prompt on the child's stdin
     :opencode                `opencode run --file <file> ...`
 
-  May also be a function of one argument (the runner context map) that
-  returns a process exit code. Tests bind `com.latypoff.agentic.impl/*agent-runner*`
-  instead of replacing this var."
+  Tests bind `com.latypoff.agentic.impl/*agent-runner*` instead of this var."
   :grok-build)
 
-(def socket-host
+(def agent-socket-repl-host
   "Address the socket REPL binds and advertises. Default 127.0.0.1."
   "127.0.0.1")
 
 (def agent-prompt
   "Default prompt template given to the CLI coding agent.
 
-  Placeholders substituted by `com.latypoff.agentic.impl/render-prompt`:
+  Placeholders substituted when the prompt is built:
 
     {{host}}             socket REPL bind address
     {{port}}             socket REPL port (ephemeral, chosen at runtime)
@@ -56,7 +54,7 @@
   "You are a coding agent attached to a LIVE Clojure JVM that just hit an
 exception in a function defined with `com.latypoff.agentic/defn`. Your job
 is to inspect the live process, decide how THIS invocation should finish,
-and leave a result the host will honor when you exit.
+and leave a result the host will honor.
 
 ## Socket REPL (do this first)
 
@@ -80,7 +78,7 @@ The REPL starts in the `user` namespace. Use fully-qualified names, or
 2. Inspect process state. Apply runtime patches if they will help this
    error and similar ones later (`alter-var-root`, `intern`, `eval`,
    `require` :reload, etc.).
-3. BEFORE you exit, set the result the host will interpret:
+3. Set the result the host will interpret:
 
        (alter-var-root #'com.latypoff.agentic.control/current-result
          (constantly {:action :return :value RETURN_VALUE}))
@@ -90,9 +88,10 @@ The REPL starts in the `user` namespace. Use fully-qualified names, or
        (alter-var-root #'com.latypoff.agentic.control/current-result
          (constantly {:action :throw :throwable REPLACEMENT}))
 
-   Leaving `current-result` nil (or exiting non-zero) rethrows the original.
-4. Exit 0 when you have set `current-result` (or have decided to let the
-   original exception propagate).
+   Leaving `current-result` nil rethrows the original throwable.
+   You do not control the CLI harness exit status. If that harness
+   completes unsuccessfully, the host ignores `current-result` and
+   rethrows the original throwable.
 
 Do not ask the human for API keys. You are already authenticated as this CLI.
 

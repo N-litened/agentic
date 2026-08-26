@@ -86,7 +86,8 @@
       (is (= 'com.latypoff.agentic-test/boom (:defn-sym @captured)))
       (is (instance? Throwable (:throwable @captured)))
       (is (symbol? (:ns @captured)))
-      (is (some? (:source-path @captured)))
+      (is (string? (:source-path @captured)))
+      (is (pos? (count (:source-path @captured))))
       (is (seq? (:form @captured)))
       (is (pos? (:line (meta (:form @captured))))))))
 
@@ -105,6 +106,20 @@
         (is (= 99 (get (:locals @captured) 'outer)))
         (is (= "closed-over" (get (:locals @captured) 'label)))
         (is (= [3] (:defn-args @captured)))))))
+
+(deftest source-path-is-inlined-at-expansion
+  (let [exp (macroexpand-1 '(com.latypoff.agentic/defn f [x] x))
+        paths (atom [])]
+    (walk/postwalk
+     (fn [x]
+       (when (and (map? x) (contains? x :source-path))
+         (swap! paths conj (:source-path x)))
+       x)
+     exp)
+    (is (seq @paths))
+    (doseq [p @paths]
+      (is (or (string? p) (nil? p))
+          "source-path must be a value captured at expansion, not a runtime call"))))
 
 (deftest prepost-maps-stay-outside-try
   (agentic/defn pos-only

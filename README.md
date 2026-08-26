@@ -50,7 +50,7 @@ The catch calls `com.latypoff.agentic.impl/exception-handler` with one map:
 | `:defn-sym` | fully-qualified function name |
 | `:defn-args` | parameter values for **this** invocation |
 | `:ns` | `(ns-name *ns*)` at runtime |
-| `:source-path` | `*source-path*` if that var exists and is bound; otherwise `*file*` captured at expansion time |
+| `:source-path` | `*source-path*` or `*file*`, both read at macro-expansion time |
 | `:form` | the macro's `&form`, quoted so `:line` / `:column` metadata survive |
 | `:locals` | `symbol → runtime value` for every local in the macro's `&env` |
 
@@ -59,7 +59,7 @@ The handler is serialized on a global mutex (one agent at a time). It:
 1. `alter-var-root`s `control/current-incident` to that map and `control/current-result` to `nil` (both reset to `nil` in `finally`).
 2. Starts a Clojure stdlib socket REPL on `127.0.0.1` with an ephemeral port, then stops it in `finally`.
 3. Runs the selected CLI agent with a pretty-printed prompt (bounded to `*print-length*` 16 / `*print-level*` 4 so huge args cannot explode). Class, message, `ex-data`, stack trace, and form metadata are included separately.
-4. On a successful process exit, returns the root value of `control/current-result`. Unsuccessful exit, or success with `current-result` still `nil`, returns `nil`.
+4. If the runner reports success, returns the root value of `control/current-result`. If the runner reports failure (or `current-result` is still `nil`), returns `nil`.
 
 The catch interprets that return:
 
@@ -83,7 +83,7 @@ The prompt tells the agent to:
   (constantly {:action :return :value RETURN_VALUE}))
 ```
 
-Leaving `current-result` nil, or exiting non-zero, rethrows the original exception.
+Leaving `current-result` nil rethrows the original exception. If the CLI harness itself completes unsuccessfully, the host also rethrows the original — the agent does not control that harness status.
 
 ## Agent selection
 
@@ -102,7 +102,7 @@ The prompt is always written to a temp file (large incidents will not blow `ARG_
 
 This library does not write to the host `*out*` / `*err*`. Operational messages and captured agent output go through [`clojure.tools.logging`](https://github.com/clojure/tools.logging) (`log/info`, `log/warn`, `log/error`). The host application supplies the logging backend (SLF4J, Log4j, `java.util.logging`, …) and therefore keeps full control of stdin/stdout/stderr.
 
-`control/agent-vendor` may also be a function of one argument (a runner context map with `:host`, `:port`, `:prompt`, `:prompt-file`, `:incident`) that returns an integer exit code. Tests bind `com.latypoff.agentic.impl/*agent-runner*` the same way.
+Tests and offline fakes bind `com.latypoff.agentic.impl/*agent-runner*` to a function of the runner context map (`:host`, `:port`, `:prompt`, `:prompt-file`, `:incident`). It must return whether the run succeeded: falsy = unsuccessful, truthy = successful.
 
 ## Prompt placeholders
 
@@ -128,7 +128,7 @@ Print bounds are fixed in `impl`: `*print-length*` 16 and `*print-level*` 4.
 | --- | --- |
 | `com.latypoff.agentic` | public `defn` macro |
 | `com.latypoff.agentic.impl` | `exception-handler`, socket REPL, CLI runners |
-| `com.latypoff.agentic.control` | `current-incident`, `current-result`, `agent-prompt`, `agent-vendor` |
+| `com.latypoff.agentic.control` | `current-incident`, `current-result`, `agent-prompt`, `agent-vendor`, `agent-socket-repl-host` |
 
 ## Offline demo
 
@@ -140,7 +140,7 @@ clojure -X:demo
 
 That calls `(divide 10 0)` (see `examples/divide.clj`). A fake agent connects to the live socket REPL and sets `{:action :return :value :healed}`, so the call returns `:healed` instead of throwing.
 
-`examples/fake_agent.sh` and `examples/fake_agent.clj` are documented stand-ins you can point `control/agent-vendor` at:
+`examples/fake_agent.sh` and `examples/fake_agent.clj` are documented stand-ins you can bind as `*agent-runner*`:
 
 ```bash
 # once the handler has printed host:port

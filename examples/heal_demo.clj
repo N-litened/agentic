@@ -11,15 +11,15 @@
             [divide :refer [divide]]))
 
 (defn- fake-runner
-  "Same contract as a real CLI runner: connect to the printed port,
-  eval live code, exit 0."
+  "Same contract as a real runner: connect to the printed port,
+  eval live code, return truthy on success."
   [{:keys [host port]}]
   (println "fake-agent: connecting to" (str host ":" port))
   (impl/socket-repl-eval
    host port
    "(alter-var-root #'com.latypoff.agentic.control/current-result (constantly {:action :return :value :healed}))")
   (println "fake-agent: set current-result to {:action :return :value :healed}")
-  0)
+  true)
 
 (defn run
   [_]
