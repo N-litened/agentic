@@ -139,7 +139,7 @@ clojure -X:demo                         # offline fake runner
 clojure -X:demo :vendor :grok-build     # or :claude-code, :codex, :opencode
 ```
 
-That runs `examples/heal_demo.clj` and prints `(average …)` for `[1 2 3 4 5]`, `[]`, and `["1" "2" "3" "4" "5"]`. `average` is intentionally broken (it divides by the `count` function). Without `:vendor`, a fake agent connects to the live socket REPL and sets `{:action :return :value :healed}`. With `:vendor`, that CLI is invoked instead.
+That runs `examples/heal_demo.clj` and prints `(average …)` for `[1 2 3 4 5]`, `[]`, and `["1" "2" "3" "4" "5"]`. `average` still throws on empty input (`reduce` before the `pos?` guard) and on non-numeric elements. Without `:vendor`, a fake agent connects to the live socket REPL and sets `{:action :return :value :healed}`. With `:vendor`, that CLI is invoked instead.
 
 ## Tests
 

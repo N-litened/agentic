@@ -7,7 +7,8 @@
       clojure -X:demo :vendor :codex
       clojure -X:demo :vendor :opencode
 
-  `average` is intentionally broken (`count` used as a divisor).
+  `average` is still buggy: empty input throws in `reduce` before the
+  `pos?` guard, and non-numeric elements fail when added.
   Without :vendor, a fake agent connects to the live socket REPL and
   sets `:action :return`, so each throwing call returns `:healed`.
   With :vendor, that CLI is invoked instead."
@@ -19,7 +20,7 @@
   "Return average of a collection of numbers"
   [collection]
   (let [n (count collection)
-        avg (/ (reduce + collection) count)]
+        avg (/ (reduce + collection) n)]
     (if (pos? n) avg nil)))
 
 (defn- fake-runner
