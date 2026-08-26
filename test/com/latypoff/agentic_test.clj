@@ -1,5 +1,5 @@
 (ns com.latypoff.agentic-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is]]
             [clojure.walk :as walk]
             [com.latypoff.agentic :as agentic]
             [com.latypoff.agentic.impl :as impl]))
