@@ -135,10 +135,11 @@ Print bounds are fixed in `impl`: `*print-length*` 16 and `*print-level*` 4.
 No Grok/Claude/Codex/OpenCode required:
 
 ```bash
-clojure -X:demo
+clojure -X:demo                         # offline fake runner
+clojure -X:demo :vendor :grok-build     # or :claude-code, :codex, :opencode
 ```
 
-That runs `examples/heal_demo.clj`: `(divide 10 0)` throws, a fake agent connects to the live socket REPL and sets `{:action :return :value :healed}`, so the call returns `:healed`.
+That runs `examples/heal_demo.clj`. `average` is intentionally broken (it divides by the `count` function). Without `:vendor`, a fake agent connects to the live socket REPL and sets `{:action :return :value :healed}`. With `:vendor`, that CLI is invoked instead.
 
 ## Tests
 

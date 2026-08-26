@@ -1,18 +1,26 @@
 (ns heal-demo
-  "Offline heal-loop demo. No Grok/Claude/Codex/OpenCode required.
+  "Heal-loop demo.
 
-      clojure -X:demo
+      clojure -X:demo                         ; offline fake runner
+      clojure -X:demo :vendor :grok-build
+      clojure -X:demo :vendor :claude-code
+      clojure -X:demo :vendor :codex
+      clojure -X:demo :vendor :opencode
 
-  `divide` throws on `/ 10 0`. A fake agent connects to the live socket
-  REPL and sets `:action :return`, so the call returns `:healed`."
+  `average` is intentionally broken (`count` used as a divisor).
+  Without :vendor, a fake agent connects to the live socket REPL and
+  sets `:action :return`, so the call returns `:healed`. With :vendor,
+  that CLI is invoked instead."
   (:require [com.latypoff.agentic :as agentic]
             [com.latypoff.agentic.control :as control]
             [com.latypoff.agentic.impl :as impl]))
 
-(agentic/defn divide
-  "Integer division. Throws on divide-by-zero unless an agent heals it."
-  [n d]
-  (/ n d))
+(agentic/defn average
+  "Return average of a collection of numbers"
+  [collection]
+  (let [n (count collection)
+        avg (/ (reduce + collection) count)]
+    (if (pos? n) avg nil)))
 
 (defn- fake-runner
   "Same contract as a real runner: connect to the printed port,
@@ -25,13 +33,35 @@
   (println "fake-agent: set current-result to {:action :return :value :healed}")
   true)
 
+(defn- coerce-vendor
+  [vendor]
+  (cond
+    (nil? vendor) nil
+    (keyword? vendor) vendor
+    (string? vendor) (keyword vendor)
+    :else (throw (ex-info ":vendor must be a keyword or string"
+                          {:vendor vendor}))))
+
 (defn run
-  [_]
-  (println "control/agent-vendor default:" control/agent-vendor)
-  (println "Calling (divide 10 0) with an offline fake agent...")
-  (binding [impl/*agent-runner* fake-runner]
-    (let [result (divide 10 0)]
-      (println "Result:" result)
-      (when-not (= :healed result)
-        (throw (ex-info "offline heal demo failed" {:result result})))
-      result)))
+  [{:keys [vendor]}]
+  (let [vendor (coerce-vendor vendor)]
+    (when (and vendor (not (#{:grok-build :claude-code :codex :opencode} vendor)))
+      (throw (ex-info "Unknown :vendor"
+                      {:vendor vendor
+                       :allowed #{:grok-build :claude-code :codex :opencode}})))
+    (println "Calling (average [1 2 3]) ...")
+    (if vendor
+      (do
+        (alter-var-root #'control/agent-vendor (constantly vendor))
+        (println "control/agent-vendor:" control/agent-vendor)
+        (let [result (average [1 2 3])]
+          (println "Result:" result)
+          result))
+      (do
+        (println "No :vendor — using offline fake runner")
+        (binding [impl/*agent-runner* fake-runner]
+          (let [result (average [1 2 3])]
+            (println "Result:" result)
+            (when-not (= :healed result)
+              (throw (ex-info "offline heal demo failed" {:result result})))
+            result))))))
