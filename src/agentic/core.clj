@@ -186,6 +186,9 @@
   [v form]
   (let [ns-obj (or (some-> v meta :ns) *ns*)]
     (binding [*ns* ns-obj]
+      ;; create-ns / in-ns targets may not have referred clojure.core.
+      (when-not (ns-resolve *ns* 'fn)
+        (refer-clojure))
       (eval form))))
 
 (defn- replacement-fn

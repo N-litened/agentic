@@ -1,5 +1,6 @@
 (ns agentic.test-runner
-  (:require [clojure.test :as t]))
+  (:require [clojure.test :as t]
+            [agentic.core-test]))
 
 (defn -main
   [& _]

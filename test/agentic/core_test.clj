@@ -6,8 +6,9 @@
 
 (defn- install!
   [vname f]
-  (intern 'agentic.test-subject vname f)
-  (ns-resolve 'agentic.test-subject vname))
+  (let [v (intern 'agentic.test-subject vname f)]
+    (alter-meta! v dissoc :agentic/source :agentic/patched?)
+    v))
 
 (defn- subject
   [vname]
