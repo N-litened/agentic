@@ -6,6 +6,4 @@
          :main-opts ["-m" "com.latypoff.agentic.test-runner"]}
   :demo {:extra-paths ["examples"]
          :ns-default heal-demo
-         :exec-fn heal-demo/run}
-  :fake-agent {:extra-paths ["examples"]
-               :main-opts ["-m" "fake-agent"]}}}
+         :exec-fn heal-demo/run}}}

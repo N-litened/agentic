@@ -1,20 +1,11 @@
 #!/usr/bin/env bash
-# Offline stand-in for `grok` / `claude` / `codex` / `opencode`.
+# Offline stand-in used by bash-fake-agent-script-roundtrip.
 #
-# The host process has already started a clojure.core.server socket REPL
-# and printed host + port in the agent prompt. This script connects,
-# sets com.latypoff.agentic.control/current-result so the throwing
-# function RETURNS :healed-offline, then exits 0.
+# The host process has already started a clojure.core.server socket REPL.
+# This script connects, sets current-result so the throwing function
+# RETURNS :healed-offline, then exits 0.
 #
-# Usage:
-#   examples/fake_agent.sh 127.0.0.1 PORT
-#
-# Wired from Clojure with:
-#   (binding [com.latypoff.agentic.impl/*agent-runner*
-#             (fn [{:keys [host port]}]
-#               (zero? @(clojure.java.process/exit-ref
-#                        (clojure.java.process/start
-#                         "bash" "examples/fake_agent.sh" host (str port)))))])
+#   bash test/fake_agent.sh 127.0.0.1 PORT
 
 set -euo pipefail
 

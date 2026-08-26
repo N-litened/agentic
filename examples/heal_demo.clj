@@ -3,12 +3,16 @@
 
       clojure -X:demo
 
-  Starts `divide`, which throws on `/ 10 0`. A fake agent connects to
-  the live socket REPL and sets `:action :return`, so the call returns
-  `:healed` instead of throwing."
-  (:require [com.latypoff.agentic.control :as control]
-            [com.latypoff.agentic.impl :as impl]
-            [divide :refer [divide]]))
+  `divide` throws on `/ 10 0`. A fake agent connects to the live socket
+  REPL and sets `:action :return`, so the call returns `:healed`."
+  (:require [com.latypoff.agentic :as agentic]
+            [com.latypoff.agentic.control :as control]
+            [com.latypoff.agentic.impl :as impl]))
+
+(agentic/defn divide
+  "Integer division. Throws on divide-by-zero unless an agent heals it."
+  [n d]
+  (/ n d))
 
 (defn- fake-runner
   "Same contract as a real runner: connect to the printed port,

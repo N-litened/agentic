@@ -138,15 +138,7 @@ No Grok/Claude/Codex/OpenCode required:
 clojure -X:demo
 ```
 
-That calls `(divide 10 0)` (see `examples/divide.clj`). A fake agent connects to the live socket REPL and sets `{:action :return :value :healed}`, so the call returns `:healed` instead of throwing.
-
-`examples/fake_agent.sh` and `examples/fake_agent.clj` are documented stand-ins you can bind as `*agent-runner*`:
-
-```bash
-# once the handler has printed host:port
-bash examples/fake_agent.sh 127.0.0.1 PORT
-clojure -M:fake-agent -- 127.0.0.1 PORT
-```
+That runs `examples/heal_demo.clj`: `(divide 10 0)` throws, a fake agent connects to the live socket REPL and sets `{:action :return :value :healed}`, so the call returns `:healed`.
 
 ## Tests
 

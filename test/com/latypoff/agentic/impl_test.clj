@@ -145,7 +145,7 @@
         (alter-var-root #'control/agent-vendor (constantly prev))))))
 
 (deftest bash-fake-agent-script-roundtrip
-  (let [script (.getAbsolutePath (io/file "examples/fake_agent.sh"))]
+  (let [script (.getAbsolutePath (io/file "test/fake_agent.sh"))]
     (is (.isFile (io/file script)))
     (binding [impl/*agent-runner*
               (fn [{:keys [host port]}]
