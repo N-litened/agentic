@@ -1,0 +1,9 @@
+.cpcache/
+.nrepl-port
+.rebel_readline_history
+.clj-kondo/.cache
+.lsp/.cache
+.calva/
+target/
+*.jar
+.DS_Store
